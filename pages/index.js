@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Head from 'next/head';
 
 export default function AgentPanel() {
@@ -8,7 +8,7 @@ export default function AgentPanel() {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [message, setMessage] = useState('');
   const [sent, setSent] = useState('');
-  const [agentList, setAgentList] = useState([
+  const [agentList] = useState([
     { id: -1, name: 'Main Agent (Jarvis)', type: 'main', status: 'active', desc: 'Primary assistant' },
     { id: -2, name: 'MCraft Builder', type: 'subagent', status: 'idle', desc: 'Minecraft clone project' },
     { id: -3, name: 'FoxOS Compat', type: 'subagent', status: 'idle', desc: 'FoxOS compatibility work' },
@@ -30,10 +30,15 @@ export default function AgentPanel() {
     e.preventDefault();
     if (!message.trim()) return;
     const targetId = selectedAgent ? selectedAgent.id : parseInt(customId);
+    if (!targetId && targetId !== 0) return;
+    
+    const encoded = encodeURIComponent(message);
+    const tgUrl = `https://t.me/Jarvis_053_Bot?text=[AGENT:${targetId}]%20${encoded}`;
+    window.open(tgUrl, '_blank');
+    
     const agentName = selectedAgent ? selectedAgent.name : `Agent ${targetId}`;
-    setSent(`Message sent to ${agentName}: "${message}"`);
+    setSent(`Opening Telegram to send to ${agentName}...`);
     setMessage('');
-    // In real implementation, this would go through Telegram bot to Jarvis
   };
 
   const selectAgent = (agent) => {
@@ -109,7 +114,6 @@ export default function AgentPanel() {
       <main>
         <div className="container">
           
-          {/* Agent List */}
           <section className="agents-section">
             <h2>Active Agents</h2>
             <div className="agents-grid">
@@ -131,7 +135,6 @@ export default function AgentPanel() {
                 </div>
               ))}
               
-              {/* Custom ID option */}
               <div
                 className={`agent-card custom ${!selectedAgent && customId ? 'selected' : ''} ${showAgentForm ? 'expanded' : ''}`}
                 onClick={() => { setShowAgentForm(true); setSelectedAgent(null); }}
@@ -157,7 +160,6 @@ export default function AgentPanel() {
             </div>
           </section>
 
-          {/* Message Form */}
           <section className="message-section">
             <h2>
               Send Message
@@ -185,22 +187,31 @@ export default function AgentPanel() {
                 className="send-btn"
                 disabled={!message.trim() || (!selectedAgent && !customId)}
               >
-                Send via Telegram → Jarvis → Agent
+                Open Telegram & Send to Jarvis →
               </button>
             </form>
             
-            {sent && <div className="sent-confirm">{sent}</div>}
+            {sent && (
+              <div className="sent-confirm">
+                {sent}
+                <br/>
+                <small>Press <strong>Send</strong> in Telegram to dispatch the agent. Include <strong>[AGENT:ID]</strong> in the message so Jarvis knows which agent to route to.</small>
+              </div>
+            )}
           </section>
 
-          {/* Info */}
           <section className="info-section">
             <h3>How it works</h3>
             <ol>
               <li>Select an agent from the list (or enter a custom ID)</li>
               <li>Type your message below</li>
-              <li>Click Send — message goes to Jarvis via Telegram</li>
-              <li>Jarvis forwards to the correct sub-agent</li>
+              <li>Click <strong>Open Telegram & Send</strong></li>
+              <li>Your message will include <code>[AGENT:ID]</code> tag</li>
+              <li>Jarvis sees the tag and routes to the correct sub-agent</li>
             </ol>
+            <div className="bot-note">
+              <strong>Bot username:</strong> @Jarvis_053_Bot
+            </div>
           </section>
         </div>
       </main>
@@ -226,7 +237,7 @@ export default function AgentPanel() {
         main { padding: 40px 24px; }
         .container { max-width: 900px; margin: 0 auto; }
         section { margin-bottom: 40px; }
-        h2 { font-size: 20px; color: #fff; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
+        h2 { font-size: 20px; color: #fff; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
         h3 { font-size: 16px; color: #ccc; margin-bottom: 12px; }
         .target-label { font-size: 14px; color: #6366f1; font-weight: 400; }
         .target-label-none { font-size: 14px; color: #666; font-weight: 400; }
@@ -276,8 +287,10 @@ export default function AgentPanel() {
         .sent-confirm {
           margin-top: 16px; padding: 12px 16px; background: rgba(34, 197, 94, 0.15);
           border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px;
-          color: #4ade80; font-size: 14px;
+          color: #4ade80; font-size: 14px; line-height: 1.6;
         }
+        .sent-confirm small { color: #888; display: block; margin-top: 8px; }
+        .sent-confirm code { background: rgba(99,102,241,0.3); padding: 2px 6px; border-radius: 4px; }
         
         .info-section {
           background: rgba(30, 30, 50, 0.4); border: 1px solid rgba(100, 100, 150, 0.15);
@@ -285,6 +298,12 @@ export default function AgentPanel() {
         }
         ol { padding-left: 24px; color: #888; font-size: 14px; line-height: 2; }
         li { margin-bottom: 4px; }
+        code { font-family: monospace; color: #a78bfa; }
+        .bot-note {
+          margin-top: 16px; padding: 12px 16px; background: rgba(99, 102, 241, 0.1);
+          border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px;
+          color: #a0a0c0; font-size: 14px;
+        }
       `}</style>
     </div>
   );
