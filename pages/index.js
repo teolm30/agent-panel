@@ -7,13 +7,14 @@ export default function AgentPanel() {
   const [error, setError] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [message, setMessage] = useState('');
-  const [chatMessages, setChatMessages] = useState([]);
-  const [telegramReady, setTelegramReady] = useState(false);
+  const [chatMessages, setChatMessages] = useState([
+    { from: 'system', text: 'Connected to Jarvis via Telegram bot' }
+  ]);
+  const [sending, setSending] = useState(false);
   const [customId, setCustomId] = useState('');
   const [showAgentForm, setShowAgentForm] = useState(false);
   const chatEndRef = useRef(null);
   
-  const BOT_USERNAME = 'JarvisClawTeobot';
   const agentList = [
     { id: -1, name: 'Main Agent (Jarvis)', type: 'main', status: 'active', desc: 'Primary assistant' },
     { id: -2, name: 'MCraft Builder', type: 'subagent', status: 'idle', desc: 'Minecraft clone project' },
@@ -30,52 +31,47 @@ export default function AgentPanel() {
     }
   };
 
-  // Load Telegram widget script
-  useEffect(() => {
-    if (authenticated) {
-      const script = document.createElement('script');
-      script.src = 'https://telegram.org/js/telegram-widget.js?19';
-      script.setAttribute('data-telegram-login', BOT_USERNAME);
-      script.setAttribute('data-size', 'large');
-      script.setAttribute('data-onauth', 'onTelegramAuth(user)');
-      script.async = true;
-      document.getElementById('telegram-widget-container').appendChild(script);
-      
-      window.onTelegramAuth = (user) => {
-        setTelegramReady(true);
-        setChatMessages([{ 
-          from: 'system', 
-          text: `Connected as @${user.username}` 
-        }]);
-      };
-    }
-  }, [authenticated]);
-
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() || sending) return;
     
     const targetId = selectedAgent ? selectedAgent.id : parseInt(customId);
     if (!targetId && targetId !== 0) return;
     
     const fullMessage = `[AGENT:${targetId}] ${message}`;
+    const userMsg = message;
     
-    // Add user message to chat
-    setChatMessages(prev => [...prev, { from: 'user', text: message, agent: targetId }]);
+    // Add user message
+    setChatMessages(prev => [...prev, { from: 'user', text: userMsg, agent: targetId }]);
     setMessage('');
+    setSending(true);
     
     try {
       const res = await fetch(`/api/send?text=${encodeURIComponent(fullMessage)}`);
       const data = await res.json();
       
       if (data.success) {
-        setChatMessages(prev => [...prev, { from: 'jarvis', text: `✓ Sent to agent ${targetId}`, agent: null }]);
+        setChatMessages(prev => [...prev, { 
+          from: 'jarvis', 
+          text: `✓ Message dispatched to agent ${targetId}`,
+          agent: null 
+        }]);
       } else {
-        setChatMessages(prev => [...prev, { from: 'system', text: `Error: ${data.error}`, agent: null }]);
+        setChatMessages(prev => [...prev, { 
+          from: 'system', 
+          text: `Send failed: ${data.error}`,
+          agent: null 
+        }]);
       }
     } catch (err) {
-      setChatMessages(prev => [...prev, { from: 'system', text: 'Failed to send. Try again.', agent: null }]);
+      setChatMessages(prev => [...prev, { 
+        from: 'system', 
+        text: 'Network error. Try again.',
+        agent: null 
+      }]);
     }
+    
+    setSending(false);
   };
 
   const selectAgent = (agent) => {
@@ -149,8 +145,7 @@ export default function AgentPanel() {
         <div className="header-content">
           <div className="logo">🎛️ <span>Agent Panel</span></div>
           <div className="header-right">
-            <div id="telegram-widget-container" className="tg-widget"></div>
-            {telegramReady && <span className="connected-badge">✓ Telegram connected</span>}
+            <span className="connected-badge">✓ Telegram Connected</span>
             <button className="logout-btn" onClick={() => setAuthenticated(false)}>Logout</button>
           </div>
         </div>
@@ -200,6 +195,10 @@ export default function AgentPanel() {
                 {customId && <span className="agent-num">#{customId}</span>}
               </div>
             </div>
+
+            <div className="bot-info">
+              <small>Bot: <code>@JarvisClawTeobot</code></small>
+            </div>
           </div>
 
           {/* Right: Chat + Compose */}
@@ -211,22 +210,10 @@ export default function AgentPanel() {
                 {(!selectedAgent && customId) && <span className="chatting-with">→ Agent #{customId}</span>}
                 {(!selectedAgent && !customId) && <span className="no-agent"> (select agent first)</span>}
               </h2>
-              {!telegramReady && (
-                <div className="tg-connect">
-                  <div id="telegram-widget-container-2"></div>
-                  <span className="tg-hint">Connect Telegram to send messages</span>
-                </div>
-              )}
             </div>
 
             {/* Chat Messages */}
             <div className="chat-messages">
-              {chatMessages.length === 0 && (
-                <div className="chat-empty">
-                  <p>💬 No messages yet</p>
-                  <small>Select an agent and type a message below</small>
-                </div>
-              )}
               {chatMessages.map((msg, i) => (
                 <div key={i} className={`chat-msg ${msg.from}`}>
                   {msg.from === 'system' && <span className="msg-icon">ℹ️</span>}
@@ -272,9 +259,9 @@ export default function AgentPanel() {
                 <button 
                   type="submit" 
                   className="send-btn"
-                  disabled={!message.trim() || (!selectedAgent && !customId) || !telegramReady}
+                  disabled={!message.trim() || (!selectedAgent && !customId) || sending}
                 >
-                  {telegramReady ? 'Send via Telegram' : 'Telegram not connected'}
+                  {sending ? 'Sending...' : 'Send via Telegram'}
                 </button>
               </div>
             </form>
@@ -302,7 +289,6 @@ export default function AgentPanel() {
           border-radius: 6px; color: #ef4444; cursor: pointer; font-size: 13px;
         }
         .logout-btn:hover { background: rgba(239, 68, 68, 0.3); }
-        .tg-widget :global(iframe) { border-radius: 8px; }
         
         main { padding: 24px 20px; }
         .main-grid { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 280px 1fr; gap: 24px; }
@@ -331,6 +317,9 @@ export default function AgentPanel() {
           border: 1px solid #555; border-radius: 6px; background: #1a1a2e; color: #fff; outline: none;
         }
         .custom-id-input:focus { border-color: #6366f1; }
+        .bot-info { margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(100, 100, 150, 0.2); }
+        .bot-info small { color: #666; font-size: 12px; }
+        .bot-info code { color: #8b5cf6; }
         
         .chat-panel {
           background: rgba(30, 30, 50, 0.7); border: 1px solid rgba(100, 100, 150, 0.2);
@@ -340,13 +329,8 @@ export default function AgentPanel() {
         .chat-header h2 { font-size: 16px; color: #fff; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .chatting-with { color: #6366f1; font-weight: 400; font-size: 14px; }
         .no-agent { color: #666; font-weight: 400; font-size: 14px; }
-        .tg-connect { margin-top: 10px; display: flex; align-items: center; gap: 12px; }
-        .tg-hint { font-size: 12px; color: #888; }
         
         .chat-messages { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
-        .chat-empty { text-align: center; padding: 40px 20px; color: #666; }
-        .chat-empty p { font-size: 18px; margin-bottom: 8px; }
-        .chat-empty small { font-size: 13px; }
         
         .chat-msg { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 12px; max-width: 85%; }
         .chat-msg.user { background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.3); align-self: flex-end; flex-direction: row-reverse; }
