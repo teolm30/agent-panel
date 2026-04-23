@@ -32,9 +32,10 @@ export default function AgentPanel() {
     const targetId = selectedAgent ? selectedAgent.id : parseInt(customId);
     if (!targetId && targetId !== 0) return;
     
-    const encoded = encodeURIComponent(message);
-    const tgUrl = `https://t.me/Jarvis_053_Bot?text=[AGENT:${targetId}]%20${encoded}`;
-    window.open(tgUrl, '_blank');
+    // Open Telegram direct chat - message goes to Jarvis
+    const encoded = encodeURIComponent(`[AGENT:${targetId}] ${message}`);
+    // Use t.me/c/ with your Telegram user ID or the direct chat
+    window.open(`https://t.me/JarvisClawTeobot?text=${encoded}`, '_blank');
     
     const agentName = selectedAgent ? selectedAgent.name : `Agent ${targetId}`;
     setSent(`Opening Telegram to send to ${agentName}...`);
@@ -210,7 +211,7 @@ export default function AgentPanel() {
               <li>Jarvis sees the tag and routes to the correct sub-agent</li>
             </ol>
             <div className="bot-note">
-              <strong>Bot username:</strong> @Jarvis_053_Bot
+              <strong>Bot username:</strong> @JarvisClawTeobot
             </div>
           </section>
         </div>
