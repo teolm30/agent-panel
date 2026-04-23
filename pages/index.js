@@ -14,8 +14,10 @@ export default function AgentPanel() {
   const [selectedAgent, setSelectedAgent] = useState('jarvis');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState(null);
   const chatEndRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -31,30 +33,50 @@ export default function AgentPanel() {
     e.preventDefault();
     if (!message.trim() || sending) return;
     
+    const msgText = message;
+    const currentAgent = AGENTS.find(a => a.id === selectedAgent);
+    
+    // Add user message to chat
+    setMessages(prev => [...prev, {
+      id: Date.now(),
+      from: 'user',
+      text: msgText,
+      agent: selectedAgent,
+      time: new Date().toLocaleTimeString()
+    }]);
+    
+    setMessage('');
     setSending(true);
     setStatus(null);
     
     try {
-      const res = await fetch(`/api/send?text=${encodeURIComponent(message)}&agent=${selectedAgent}`);
+      const res = await fetch(`/api/send?text=${encodeURIComponent(msgText)}&agent=${selectedAgent}`);
       const data = await res.json();
       
       if (data.success) {
-        setStatus({ type: 'success', text: `✓ Sent via ${selectedAgent} bot` });
-        setMessage('');
+        setStatus({ type: 'info', text: `📱 Sent to ${currentAgent.name} via ${currentAgent.bot}` });
+        // Add system message showing it was dispatched
+        setTimeout(() => {
+          setMessages(prev => [...prev, {
+            id: Date.now() + 1,
+            from: 'system',
+            text: `✓ Message dispatched to ${currentAgent.emoji} ${currentAgent.name}. Response will come to your Telegram.`,
+            time: new Date().toLocaleTimeString()
+          }]);
+        }, 500);
       } else {
         setStatus({ type: 'error', text: `Failed: ${data.error}` });
       }
     } catch (err) {
-      setStatus({ type: 'error', text: 'Network error' });
+      setStatus({ type: 'error', text: 'Network error. Try again.' });
     }
     
     setSending(false);
-    setTimeout(() => setStatus(null), 3000);
   };
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [status]);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   if (!authenticated) {
     return (
@@ -147,22 +169,46 @@ export default function AgentPanel() {
         <div className="chat-area">
           <div className="chat-header">
             <span className="chat-icon">{currentAgent.emoji}</span>
-            <span>Chatting with <strong>{currentAgent.name}</strong></span>
+            <span>Routing to <strong>{currentAgent.name}</strong></span>
             <span className="chat-bot">{currentAgent.bot}</span>
           </div>
 
           <div className="chat-messages">
-            <div className="welcome-msg">
-              <span className="welcome-icon">{currentAgent.emoji}</span>
-              <p>Send a message to <strong>{currentAgent.name}</strong> via {currentAgent.bot}</p>
-              <small>Messages are routed to the selected agent's Telegram bot</small>
-            </div>
+            {messages.length === 0 && (
+              <div className="welcome-msg">
+                <span className="welcome-icon">💬</span>
+                <p>Send a message to <strong>{currentAgent.name}</strong></p>
+                <small>Messages are sent via Telegram bot. Responses come to your Telegram.</small>
+              </div>
+            )}
+            
+            {messages.map(msg => (
+              <div key={msg.id} className={`message ${msg.from}`}>
+                <div className="msg-icon">
+                  {msg.from === 'user' && '👤'}
+                  {msg.from === 'system' && 'ℹ️'}
+                  {msg.from === 'jarvis' && currentAgent.emoji}
+                </div>
+                <div className="msg-body">
+                  <div className="msg-meta">
+                    <span className="msg-sender">
+                      {msg.from === 'user' && `You → ${currentAgent.name}`}
+                      {msg.from === 'system' && 'System'}
+                      {msg.from === 'jarvis' && currentAgent.name}
+                    </span>
+                    <span className="msg-time">{msg.time}</span>
+                  </div>
+                  <div className="msg-text">{msg.text}</div>
+                </div>
+              </div>
+            ))}
+            
             {status && (
-              <div className={`status-msg ${status.type}`}>
+              <div className={`status-bar ${status.type}`}>
                 {status.text}
               </div>
             )}
-            <div ref={chatEndRef} />
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Compose */}
@@ -170,8 +216,8 @@ export default function AgentPanel() {
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder={`Message ${currentAgent.name}...`}
-              rows={3}
+              placeholder={`Message ${currentAgent.name} via ${currentAgent.bot}...`}
+              rows={2}
               disabled={sending}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -181,8 +227,8 @@ export default function AgentPanel() {
               }}
             />
             <div className="compose-footer">
-              <span className="target-info">
-                Sending via <strong>{currentAgent.bot}</strong>
+              <span className="route-info">
+                Route: You → {currentAgent.bot} → {currentAgent.name}
               </span>
               <button 
                 type="submit" 
@@ -190,7 +236,7 @@ export default function AgentPanel() {
                 disabled={!message.trim() || sending}
                 style={{ background: currentAgent.color }}
               >
-                {sending ? 'Sending...' : `Send via ${currentAgent.emoji}`}
+                {sending ? 'Sending...' : `📤 Send via ${currentAgent.emoji}`}
               </button>
             </div>
           </form>
@@ -251,12 +297,14 @@ export default function AgentPanel() {
         .chat-header {
           padding: 16px 20px; border-bottom: 1px solid rgba(100, 100, 150, 0.15);
           display: flex; align-items: center; gap: 12px; font-size: 14px;
+          background: rgba(40, 40, 60, 0.3);
         }
         .chat-icon { font-size: 24px; }
         .chat-header strong { color: #fff; }
-        .chat-bot { margin-left: auto; color: #6366f1; font-size: 12px; }
+        .chat-bot { margin-left: auto; color: var(--agent-color, #6366f1); font-size: 12px; }
         
-        .chat-messages { padding: 20px; min-height: 200px; display: flex; flex-direction: column; gap: 12px; }
+        .chat-messages { padding: 20px; min-height: 300px; max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+        
         .welcome-msg {
           text-align: center; padding: 40px 20px;
           background: rgba(40, 40, 60, 0.5); border-radius: 12px;
@@ -266,12 +314,29 @@ export default function AgentPanel() {
         .welcome-msg strong { color: #fff; }
         .welcome-msg small { display: block; margin-top: 8px; color: #666; font-size: 12px; }
         
-        .status-msg {
-          padding: 10px 16px; border-radius: 8px; font-size: 13px;
-          text-align: center;
+        .message {
+          display: flex; gap: 12px; padding: 12px 16px; border-radius: 12px;
+          max-width: 85%; animation: fadeIn 0.2s ease;
         }
-        .status-msg.success { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
-        .status-msg.error { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .message.user { background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.3); align-self: flex-end; flex-direction: row-reverse; }
+        .message.system { background: rgba(100, 100, 150, 0.2); border: 1px solid rgba(100, 100, 150, 0.3); align-self: center; max-width: 90%; }
+        .message.jarvis { background: rgba(74, 222, 128, 0.15); border: 1px solid rgba(74, 222, 128, 0.3); align-self: flex-start; }
+        
+        .msg-icon { font-size: 20px; flex-shrink: 0; }
+        .msg-body { display: flex; flex-direction: column; gap: 4px; }
+        .msg-meta { display: flex; align-items: center; gap: 8px; }
+        .msg-sender { font-size: 12px; font-weight: 600; color: #888; }
+        .msg-time { font-size: 10px; color: #666; }
+        .msg-text { font-size: 14px; line-height: 1.5; }
+        
+        .status-bar {
+          text-align: center; padding: 8px 16px; border-radius: 20px; font-size: 12px;
+          align-self: center;
+        }
+        .status-bar.info { background: rgba(99, 102, 241, 0.3); color: #a5b4fc; }
+        .status-bar.success { background: rgba(74, 222, 128, 0.3); color: #4ade80; }
+        .status-bar.error { background: rgba(239, 68, 68, 0.3); color: #ef4444; }
         
         .compose-form { padding: 16px 20px; border-top: 1px solid rgba(100, 100, 150, 0.15); }
         .compose-form textarea {
@@ -284,8 +349,7 @@ export default function AgentPanel() {
         .compose-footer { 
           display: flex; justify-content: space-between; align-items: center; margin-top: 12px;
         }
-        .target-info { font-size: 12px; color: #888; }
-        .target-info strong { color: #6366f1; }
+        .route-info { font-size: 11px; color: #666; }
         .send-btn {
           padding: 10px 24px; font-size: 14px; font-weight: 600;
           color: #fff; border: none; border-radius: 8px; cursor: pointer;
@@ -296,6 +360,7 @@ export default function AgentPanel() {
         
         @media (max-width: 768px) {
           .agents-row { grid-template-columns: 1fr; }
+          .message { max-width: 95%; }
         }
       `}</style>
     </div>
