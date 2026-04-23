@@ -1,20 +1,33 @@
 export default async function handler(req, res) {
-  const { text, chat_id } = req.query;
+  const { text, agent } = req.query;
   
   if (!text) {
     return res.status(400).json({ error: 'No text provided' });
   }
   
-  const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  // Map agent names to bot tokens
+  const botTokens = {
+    'jarvis': process.env.TELEGRAM_BOT_TOKEN_JARVIS,
+    'mcraft': process.env.TELEGRAM_BOT_TOKEN_MCRAFT,
+    'foxos': process.env.TELEGRAM_BOT_TOKEN_FOXOS
+  };
+  
+  const chatIds = {
+    'jarvis': process.env.TELEGRAM_CHAT_ID_JARVIS || '8788969906',
+    'mcraft': process.env.TELEGRAM_CHAT_ID_MCRAFT || '8788969906',
+    'foxos': process.env.TELEGRAM_CHAT_ID_FOXOS || '8788969906'
+  };
+  
+  const botKey = agent || 'jarvis';
+  const BOT_TOKEN = botTokens[botKey];
+  const targetChatId = chatIds[botKey];
   
   if (!BOT_TOKEN) {
-    return res.status(500).json({ error: 'Bot token not configured' });
+    return res.status(500).json({ error: `Bot token not configured for ${botKey}` });
   }
   
-  const targetChatId = chat_id || process.env.DEFAULT_CHAT_ID;
-  
   if (!targetChatId) {
-    return res.status(500).json({ error: 'No chat_id provided and DEFAULT_CHAT_ID not set' });
+    return res.status(500).json({ error: `Chat ID not configured for ${botKey}` });
   }
   
   try {
@@ -31,7 +44,12 @@ export default async function handler(req, res) {
     const result = await response.json();
     
     if (result.ok) {
-      return res.status(200).json({ success: true, message_id: result.result.message_id });
+      return res.status(200).json({ 
+        success: true, 
+        message_id: result.result.message_id,
+        agent: botKey,
+        bot: BOT_TOKEN.substring(0, 10) + '...'
+      });
     } else {
       return res.status(400).json({ error: result.description });
     }
