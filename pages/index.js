@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 
 export default function AgentPanel() {
@@ -7,14 +7,18 @@ export default function AgentPanel() {
   const [error, setError] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [message, setMessage] = useState('');
-  const [sent, setSent] = useState('');
-  const [agentList] = useState([
+  const [chatMessages, setChatMessages] = useState([]);
+  const [telegramReady, setTelegramReady] = useState(false);
+  const [customId, setCustomId] = useState('');
+  const [showAgentForm, setShowAgentForm] = useState(false);
+  const chatEndRef = useRef(null);
+  
+  const BOT_USERNAME = 'JarvisClawTeobot';
+  const agentList = [
     { id: -1, name: 'Main Agent (Jarvis)', type: 'main', status: 'active', desc: 'Primary assistant' },
     { id: -2, name: 'MCraft Builder', type: 'subagent', status: 'idle', desc: 'Minecraft clone project' },
     { id: -3, name: 'FoxOS Compat', type: 'subagent', status: 'idle', desc: 'FoxOS compatibility work' },
-  ]);
-  const [showAgentForm, setShowAgentForm] = useState(false);
-  const [customId, setCustomId] = useState('');
+  ];
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -26,20 +30,52 @@ export default function AgentPanel() {
     }
   };
 
-  const handleSend = (e) => {
+  // Load Telegram widget script
+  useEffect(() => {
+    if (authenticated) {
+      const script = document.createElement('script');
+      script.src = 'https://telegram.org/js/telegram-widget.js?19';
+      script.setAttribute('data-telegram-login', BOT_USERNAME);
+      script.setAttribute('data-size', 'large');
+      script.setAttribute('data-onauth', 'onTelegramAuth(user)');
+      script.async = true;
+      document.getElementById('telegram-widget-container').appendChild(script);
+      
+      window.onTelegramAuth = (user) => {
+        setTelegramReady(true);
+        setChatMessages([{ 
+          from: 'system', 
+          text: `Connected as @${user.username}` 
+        }]);
+      };
+    }
+  }, [authenticated]);
+
+  const handleSend = async (e) => {
     e.preventDefault();
     if (!message.trim()) return;
+    
     const targetId = selectedAgent ? selectedAgent.id : parseInt(customId);
     if (!targetId && targetId !== 0) return;
     
-    // Open Telegram direct chat - message goes to Jarvis
-    const encoded = encodeURIComponent(`[AGENT:${targetId}] ${message}`);
-    // Use t.me/c/ with your Telegram user ID or the direct chat
-    window.open(`https://t.me/JarvisClawTeobot?text=${encoded}`, '_blank');
+    const fullMessage = `[AGENT:${targetId}] ${message}`;
     
-    const agentName = selectedAgent ? selectedAgent.name : `Agent ${targetId}`;
-    setSent(`Opening Telegram to send to ${agentName}...`);
+    // Add user message to chat
+    setChatMessages(prev => [...prev, { from: 'user', text: message, agent: targetId }]);
     setMessage('');
+    
+    try {
+      const res = await fetch(`/api/send?text=${encodeURIComponent(fullMessage)}`);
+      const data = await res.json();
+      
+      if (data.success) {
+        setChatMessages(prev => [...prev, { from: 'jarvis', text: `✓ Sent to agent ${targetId}`, agent: null }]);
+      } else {
+        setChatMessages(prev => [...prev, { from: 'system', text: `Error: ${data.error}`, agent: null }]);
+      }
+    } catch (err) {
+      setChatMessages(prev => [...prev, { from: 'system', text: 'Failed to send. Try again.', agent: null }]);
+    }
   };
 
   const selectAgent = (agent) => {
@@ -47,6 +83,10 @@ export default function AgentPanel() {
     setCustomId('');
     setShowAgentForm(false);
   };
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
 
   if (!authenticated) {
     return (
@@ -108,112 +148,137 @@ export default function AgentPanel() {
       <header>
         <div className="header-content">
           <div className="logo">🎛️ <span>Agent Panel</span></div>
-          <button className="logout-btn" onClick={() => setAuthenticated(false)}>Logout</button>
+          <div className="header-right">
+            <div id="telegram-widget-container" className="tg-widget"></div>
+            {telegramReady && <span className="connected-badge">✓ Telegram connected</span>}
+            <button className="logout-btn" onClick={() => setAuthenticated(false)}>Logout</button>
+          </div>
         </div>
       </header>
 
       <main>
-        <div className="container">
+        <div className="main-grid">
           
-          <section className="agents-section">
-            <h2>Active Agents</h2>
-            <div className="agents-grid">
+          {/* Left: Agent List */}
+          <div className="agents-panel">
+            <h2>Agents</h2>
+            <div className="agents-list">
               {agentList.map((agent, i) => (
                 <div
                   key={i}
-                  className={`agent-card ${selectedAgent?.id === agent.id ? 'selected' : ''}`}
+                  className={`agent-item ${selectedAgent?.id === agent.id ? 'selected' : ''}`}
                   onClick={() => selectAgent(agent)}
                 >
-                  <div className="agent-icon">
-                    {agent.type === 'main' ? '🤖' : '⚙️'}
+                  <span className="agent-emoji">{agent.type === 'main' ? '🤖' : '⚙️'}</span>
+                  <div className="agent-details">
+                    <span className="agent-name">{agent.name}</span>
+                    <span className={`agent-status ${agent.status}`}>{agent.status}</span>
                   </div>
-                  <div className="agent-info">
-                    <h3>{agent.name}</h3>
-                    <p>{agent.desc}</p>
-                    <span className={`status-badge ${agent.status}`}>{agent.status}</span>
-                  </div>
-                  <div className="agent-id">#{agent.id}</div>
+                  <span className="agent-num">#{agent.id}</span>
                 </div>
               ))}
               
-              <div
-                className={`agent-card custom ${!selectedAgent && customId ? 'selected' : ''} ${showAgentForm ? 'expanded' : ''}`}
+              <div 
+                className={`agent-item custom ${!selectedAgent && customId ? 'selected' : ''}`}
                 onClick={() => { setShowAgentForm(true); setSelectedAgent(null); }}
               >
-                <div className="agent-icon">📝</div>
-                <div className="agent-info">
-                  <h3>Custom Agent ID</h3>
-                  <p>Enter any agent ID manually</p>
+                <span className="agent-emoji">📝</span>
+                <div className="agent-details">
+                  <span className="agent-name">Custom ID</span>
                   {showAgentForm && (
                     <input
                       type="number"
                       value={customId}
                       onChange={(e) => setCustomId(e.target.value)}
-                      placeholder="e.g. -4"
-                      className="id-input"
+                      placeholder="-4"
+                      className="custom-id-input"
                       onClick={(e) => e.stopPropagation()}
                       autoFocus
                     />
                   )}
                 </div>
-                {customId && <div className="agent-id">#{customId}</div>}
+                {customId && <span className="agent-num">#{customId}</span>}
               </div>
             </div>
-          </section>
+          </div>
 
-          <section className="message-section">
-            <h2>
-              Send Message
-              {selectedAgent && (
-                <span className="target-label">→ {selectedAgent.name}</span>
+          {/* Right: Chat + Compose */}
+          <div className="chat-panel">
+            <div className="chat-header">
+              <h2>
+                Chat 
+                {selectedAgent && <span className="chatting-with">→ {selectedAgent.name}</span>}
+                {(!selectedAgent && customId) && <span className="chatting-with">→ Agent #{customId}</span>}
+                {(!selectedAgent && !customId) && <span className="no-agent"> (select agent first)</span>}
+              </h2>
+              {!telegramReady && (
+                <div className="tg-connect">
+                  <div id="telegram-widget-container-2"></div>
+                  <span className="tg-hint">Connect Telegram to send messages</span>
+                </div>
               )}
-              {(!selectedAgent && customId) && (
-                <span className="target-label">→ Agent #{customId}</span>
+            </div>
+
+            {/* Chat Messages */}
+            <div className="chat-messages">
+              {chatMessages.length === 0 && (
+                <div className="chat-empty">
+                  <p>💬 No messages yet</p>
+                  <small>Select an agent and type a message below</small>
+                </div>
               )}
-              {(!selectedAgent && !customId) && (
-                <span className="target-label-none"> (select agent first)</span>
-              )}
-            </h2>
-            
-            <form onSubmit={handleSend}>
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Enter your message to the agent..."
-                rows={5}
-                disabled={!selectedAgent && !customId}
-              />
-              <button
-                type="submit"
-                className="send-btn"
-                disabled={!message.trim() || (!selectedAgent && !customId)}
-              >
-                Open Telegram & Send to Jarvis →
-              </button>
+              {chatMessages.map((msg, i) => (
+                <div key={i} className={`chat-msg ${msg.from}`}>
+                  {msg.from === 'system' && <span className="msg-icon">ℹ️</span>}
+                  {msg.from === 'user' && <span className="msg-icon">👤</span>}
+                  {msg.from === 'jarvis' && <span className="msg-icon">🤖</span>}
+                  <div className="msg-content">
+                    {msg.agent && <span className="msg-tag">[Agent {msg.agent}]</span>}
+                    <span className="msg-text">{msg.text}</span>
+                  </div>
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Compose */}
+            <form className="compose-form" onSubmit={handleSend}>
+              <div className="compose-row">
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder={selectedAgent || customId ? "Type your message..." : "Select an agent first..."}
+                  rows={2}
+                  disabled={!selectedAgent && !customId}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend(e);
+                    }
+                  }}
+                />
+              </div>
+              <div className="compose-actions">
+                {selectedAgent && (
+                  <span className="target-display">
+                    To: <strong>{selectedAgent.name}</strong> #{selectedAgent.id}
+                  </span>
+                )}
+                {!selectedAgent && customId && (
+                  <span className="target-display">
+                    To: <strong>Agent #{customId}</strong>
+                  </span>
+                )}
+                <button 
+                  type="submit" 
+                  className="send-btn"
+                  disabled={!message.trim() || (!selectedAgent && !customId) || !telegramReady}
+                >
+                  {telegramReady ? 'Send via Telegram' : 'Telegram not connected'}
+                </button>
+              </div>
             </form>
-            
-            {sent && (
-              <div className="sent-confirm">
-                {sent}
-                <br/>
-                <small>Press <strong>Send</strong> in Telegram to dispatch the agent. Include <strong>[AGENT:ID]</strong> in the message so Jarvis knows which agent to route to.</small>
-              </div>
-            )}
-          </section>
-
-          <section className="info-section">
-            <h3>How it works</h3>
-            <ol>
-              <li>Select an agent from the list (or enter a custom ID)</li>
-              <li>Type your message below</li>
-              <li>Click <strong>Open Telegram & Send</strong></li>
-              <li>Your message will include <code>[AGENT:ID]</code> tag</li>
-              <li>Jarvis sees the tag and routes to the correct sub-agent</li>
-            </ol>
-            <div className="bot-note">
-              <strong>Bot username:</strong> @JarvisClawTeobot
-            </div>
-          </section>
+          </div>
         </div>
       </main>
 
@@ -225,85 +290,95 @@ export default function AgentPanel() {
         }
         header {
           background: rgba(20, 20, 35, 0.95); border-bottom: 1px solid rgba(100, 100, 150, 0.2);
-          padding: 16px 0; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(10px);
+          padding: 12px 0; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(10px);
         }
-        .header-content { max-width: 900px; margin: 0 auto; padding: 0 24px; display: flex; justify-content: space-between; align-items: center; }
-        .logo { font-size: 24px; color: #fff; }
-        .logo span { margin-left: 12px; font-weight: 700; }
+        .header-content { max-width: 1100px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; }
+        .logo { font-size: 22px; color: #fff; }
+        .logo span { margin-left: 10px; font-weight: 700; }
+        .header-right { display: flex; align-items: center; gap: 16px; }
+        .connected-badge { font-size: 13px; color: #4ade80; background: rgba(74, 222, 128, 0.15); padding: 4px 10px; border-radius: 12px; }
         .logout-btn {
           padding: 8px 16px; background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4);
-          border-radius: 6px; color: #ef4444; cursor: pointer; font-size: 14px;
+          border-radius: 6px; color: #ef4444; cursor: pointer; font-size: 13px;
         }
         .logout-btn:hover { background: rgba(239, 68, 68, 0.3); }
-        main { padding: 40px 24px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        section { margin-bottom: 40px; }
-        h2 { font-size: 20px; color: #fff; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-        h3 { font-size: 16px; color: #ccc; margin-bottom: 12px; }
-        .target-label { font-size: 14px; color: #6366f1; font-weight: 400; }
-        .target-label-none { font-size: 14px; color: #666; font-weight: 400; }
+        .tg-widget :global(iframe) { border-radius: 8px; }
         
-        .agents-grid { display: flex; flex-direction: column; gap: 12px; }
-        .agent-card {
-          background: rgba(30, 30, 50, 0.8); border: 2px solid rgba(100, 100, 150, 0.2);
-          border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 16px;
-          cursor: pointer; transition: all 0.2s;
-        }
-        .agent-card:hover { border-color: rgba(99, 102, 241, 0.4); transform: translateX(4px); }
-        .agent-card.selected { border-color: #6366f1; background: rgba(99, 102, 241, 0.15); }
-        .agent-card.custom { border-style: dashed; }
-        .agent-card.expanded { border-color: #8b5cf6; }
-        .agent-icon { font-size: 36px; }
-        .agent-info { flex: 1; }
-        .agent-info h3 { font-size: 16px; color: #fff; margin-bottom: 4px; }
-        .agent-info p { color: #888; font-size: 13px; margin-bottom: 8px; }
-        .status-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 1px; }
-        .status-badge.active { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
-        .status-badge.idle { background: rgba(100, 100, 150, 0.2); color: #a0a0c0; }
-        .agent-id { font-size: 18px; font-weight: 700; color: #6366f1; }
-        .id-input {
-          margin-top: 8px; padding: 8px 12px; width: 100px; font-size: 16px;
-          border: 1px solid #444; border-radius: 6px; background: #1a1a2e; color: #fff; outline: none;
-        }
-        .id-input:focus { border-color: #6366f1; }
+        main { padding: 24px 20px; }
+        .main-grid { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 280px 1fr; gap: 24px; }
         
-        .message-section {
-          background: rgba(30, 30, 50, 0.6); border: 1px solid rgba(100, 100, 150, 0.2);
-          border-radius: 12px; padding: 24px;
+        .agents-panel { background: rgba(30, 30, 50, 0.7); border: 1px solid rgba(100, 100, 150, 0.2); border-radius: 12px; padding: 20px; height: fit-content; }
+        .agents-panel h2 { font-size: 16px; color: #fff; margin-bottom: 16px; }
+        .agents-list { display: flex; flex-direction: column; gap: 8px; }
+        
+        .agent-item {
+          display: flex; align-items: center; gap: 10px; padding: 12px;
+          background: rgba(40, 40, 60, 0.6); border: 2px solid transparent;
+          border-radius: 10px; cursor: pointer; transition: all 0.2s;
         }
-        textarea {
-          width: 100%; padding: 16px; font-size: 15px; font-family: inherit;
-          border: 1px solid #444; border-radius: 8px; background: rgba(20, 20, 40, 0.8);
-          color: #fff; resize: vertical; outline: none; margin-bottom: 16px;
+        .agent-item:hover { border-color: rgba(99, 102, 241, 0.4); transform: translateX(3px); }
+        .agent-item.selected { border-color: #6366f1; background: rgba(99, 102, 241, 0.15); }
+        .agent-item.custom { border-style: dashed; }
+        .agent-emoji { font-size: 24px; }
+        .agent-details { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+        .agent-name { font-size: 14px; color: #fff; }
+        .agent-status { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .agent-status.active { color: #4ade80; }
+        .agent-status.idle { color: #888; }
+        .agent-num { font-size: 14px; font-weight: 700; color: #6366f1; }
+        .custom-id-input {
+          margin-top: 6px; padding: 6px 10px; width: 80px; font-size: 14px;
+          border: 1px solid #555; border-radius: 6px; background: #1a1a2e; color: #fff; outline: none;
         }
-        textarea:focus { border-color: #6366f1; }
-        textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+        .custom-id-input:focus { border-color: #6366f1; }
+        
+        .chat-panel {
+          background: rgba(30, 30, 50, 0.7); border: 1px solid rgba(100, 100, 150, 0.2);
+          border-radius: 12px; display: flex; flex-direction: column; height: 70vh;
+        }
+        .chat-header { padding: 16px 20px; border-bottom: 1px solid rgba(100, 100, 150, 0.15); }
+        .chat-header h2 { font-size: 16px; color: #fff; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .chatting-with { color: #6366f1; font-weight: 400; font-size: 14px; }
+        .no-agent { color: #666; font-weight: 400; font-size: 14px; }
+        .tg-connect { margin-top: 10px; display: flex; align-items: center; gap: 12px; }
+        .tg-hint { font-size: 12px; color: #888; }
+        
+        .chat-messages { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+        .chat-empty { text-align: center; padding: 40px 20px; color: #666; }
+        .chat-empty p { font-size: 18px; margin-bottom: 8px; }
+        .chat-empty small { font-size: 13px; }
+        
+        .chat-msg { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 12px; max-width: 85%; }
+        .chat-msg.user { background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.3); align-self: flex-end; flex-direction: row-reverse; }
+        .chat-msg.jarvis { background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.2); align-self: flex-start; }
+        .chat-msg.system { background: rgba(100, 100, 150, 0.2); border: 1px solid rgba(100, 100, 150, 0.3); align-self: flex-start; font-size: 13px; }
+        .msg-icon { font-size: 18px; flex-shrink: 0; }
+        .msg-content { display: flex; flex-direction: column; gap: 4px; }
+        .msg-tag { font-size: 11px; color: #6366f1; font-weight: 600; }
+        .msg-text { font-size: 14px; line-height: 1.5; }
+        
+        .compose-form { padding: 16px 20px; border-top: 1px solid rgba(100, 100, 150, 0.15); }
+        .compose-row textarea {
+          width: 100%; padding: 12px 14px; font-size: 14px; font-family: inherit;
+          border: 1px solid #444; border-radius: 10px; background: rgba(20, 20, 40, 0.8);
+          color: #fff; resize: none; outline: none;
+        }
+        .compose-row textarea:focus { border-color: #6366f1; }
+        .compose-row textarea:disabled { opacity: 0.5; }
+        .compose-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+        .target-display { font-size: 13px; color: #888; }
+        .target-display strong { color: #6366f1; }
         .send-btn {
-          width: 100%; padding: 14px 24px; font-size: 15px; font-weight: 600;
+          padding: 10px 20px; font-size: 14px; font-weight: 600;
           background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
           border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s;
         }
-        .send-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4); }
+        .send-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4); }
         .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .sent-confirm {
-          margin-top: 16px; padding: 12px 16px; background: rgba(34, 197, 94, 0.15);
-          border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px;
-          color: #4ade80; font-size: 14px; line-height: 1.6;
-        }
-        .sent-confirm small { color: #888; display: block; margin-top: 8px; }
-        .sent-confirm code { background: rgba(99,102,241,0.3); padding: 2px 6px; border-radius: 4px; }
         
-        .info-section {
-          background: rgba(30, 30, 50, 0.4); border: 1px solid rgba(100, 100, 150, 0.15);
-          border-radius: 12px; padding: 20px;
-        }
-        ol { padding-left: 24px; color: #888; font-size: 14px; line-height: 2; }
-        li { margin-bottom: 4px; }
-        code { font-family: monospace; color: #a78bfa; }
-        .bot-note {
-          margin-top: 16px; padding: 12px 16px; background: rgba(99, 102, 241, 0.1);
-          border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px;
-          color: #a0a0c0; font-size: 14px;
+        @media (max-width: 768px) {
+          .main-grid { grid-template-columns: 1fr; }
+          .chat-panel { height: 60vh; }
         }
       `}</style>
     </div>
